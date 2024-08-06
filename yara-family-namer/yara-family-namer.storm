@@ -1,0 +1,30 @@
+/*
+Name: yara-family-namer.storm
+Author: exc3l_one@protonmail.com
+Modified By: TODO
+Last Modified: 2024-06-28
+
+Description: Parse out the malware family name from the YARA rule text and add it as a :family prop to the node. 
+*/
+
+// Grab all YARA rules which do not have the family prop set but have family metadata in the rule text
+it:app:yara:rule -:family +:text~="[Ff]amily" -:text~="[Ff]amily = \"n\/a\""
+
+// Attempt to extract the family name from the rule text
+$rule_text = :text
+$family_name = $lib.regex.search("([Ff]amily)(\s*=\s*\")([\w\-\.:\/]+)(\")", $rule_text)
+
+// If the family name is found, add it as a :family prop to the node
+if ($family_name.2 != $lib.null) {
+    [:family=$family_name.2]
+} else {
+    // If that fails, attempt a broader regex pattern
+    $family_name = $lib.regex.search("([Ff]amily)(\s*=\s*\")(.+)(\")", $rule_text)
+    // This will mostly catch rules with commas in them representing multiple malware families, but for clean modelling we will only take the first one
+    if ($family_name.2 != $lib.null) {
+        $first_family = $family_name.2.split(",").0
+        [:family=$first_family]        
+    }
+}
+// Do not yield any nodes
+| spin

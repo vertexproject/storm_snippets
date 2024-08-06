@@ -1,0 +1,41 @@
+/*
+Name: ransomwhere-addresses-ingest.storm
+Author: exc3l_one@protonmail.com
+Modified By: TODO
+Last Modified: 2024-06-28
+
+Description: Ingests cryptocurrency addresses related to ransomwhere payments from the RansomWhere project API
+
+References: 
+    -- RansomWhere Project Website: https://ransomwhe.re/#browse
+*/
+
+// Fetch the ransomwhe.re data
+$resp = $lib.inet.http.get("https://api.ransomwhe.re/export")
+
+if ($resp.code = 200) {
+    $data = $lib.json.load($resp.body)
+
+    // Iterate over the addresses and ingest them into the platform - supports 
+    for $address in $data.result {
+
+        // At the moment ransomwhere only supports bitcoin addresses, so other chains are for future proofing only
+        switch $address.blockchain {
+            "bitcoin": {[crypto:currency:address=(btc, $address.address)]},
+            "ethereum": {[crypto:currency:address=(eth, $address.address)]},
+            "monero": {[crypto:currency:address=(xmr, $address.address)]},
+            "ripple": {[crypto:currency:address=(xrp, $address.address)]},
+            "zcash": {[crypto:currency:address=(zec, $address.address)]},
+            "dogecoin": {[crypto:currency:address=(doge, $address.address)]} //because why not
+        }
+
+        // Cleanup the tags to make them more Synapse friendly, apply to the crypto:currency:address node
+        $tag = $address.family.replace("(", "").replace(")", "").replace(" / ", "_").replace(" ", "_").replace("/", "_")
+        [+#rep.ransomwhe_re.$tag]
+
+    }
+} else {
+    $lib.warn("Received non-200 HTTP code: {code}", code=$resp.code)
+}
+// Don't return the addresses since it's a lot of data
+| spin 
