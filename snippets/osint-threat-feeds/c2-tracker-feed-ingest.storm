@@ -1,0 +1,67 @@
+/*
+Name: c2-tracker-feed-ingest.storm
+Author: exc3l_one@protonmail.com
+Modified By: TODO
+Last Modified: 2024-06-28
+
+Description: Ingest the TXT feeds from the C2-Tracker Github project by montysecurity
+
+References: 
+    -- Project Repo: https://github.com/montysecurity/C2-Tracker
+*/
+
+
+$url = "https://github.com/montysecurity/C2-Tracker/tree/main/data"
+$resp = $lib.inet.http.get($url)
+
+if ($resp.code = 200 ) {
+    $data = $resp.body.decode()
+    // Extract the JSON representation of the Github repo tree from the HTML page
+    $data = $lib.regex.search('(<script type="application\/json" data-target="react-app\.embeddedData">)(.+)(<\/script>)', $data)
+    $data = $lib.json.load($data.1)
+
+    // Iterate over every family tracked by the C2-Tracker project
+    for $family_feed in $data.payload.tree.items {
+
+        if ($family_feed.name = "all.txt") { continue }
+
+        $lib.print(`Fetching data for family: {$family_feed.name}`)
+
+        // Fetch the raw file containing the IPs for the family
+        $c2_feed = $lib.inet.http.get(`https://raw.githubusercontent.com/montysecurity/C2-Tracker/main/{$family_feed.path}`)
+
+        if ($c2_feed.code = 200) {
+            // Split the feed by newline
+            $c2_feed = $c2_feed.body.decode().split("\n")
+            
+            // Create new inet:ipv4 nodes for each IP in the feed
+            for $c2_ip in $c2_feed {
+                ($ok, $ip_val) = $lib.trycast(inet:ipv4, $c2_ip)
+                if ($ok) {
+                    [inet:ipv4=$c2_ip]
+                    
+                    // Extract the family name + type from the filename and add a timestamp to the rep node
+                    $tag = $family_feed.name.replace(" IPs.txt", "").replace(" C4 ", " C2 ").split(" ")
+
+                    // The following if/elif section covers various lengths of the family naming structure, prone to breaking but more granular
+                    if ($lib.len($tag) = 2) {
+                        $tag = $lib.str.concat($tag.1, ".", $tag.0)
+                        [+#rep.c2_tracker.$tag=($lib.time.now())]
+                    } elif ($lib.len($tag) = 1) {
+                        if ($tag ~= "RAT") {$tag = $lib.str.concat("rat", ".", $tag.0)}
+                        if ($tag ~= "C2") {$tag = $lib.str.concat("c2", ".", $tag.0)}
+                        [+#rep.c2_tracker.$tag=($lib.time.now())]
+                    } elif ($lib.len($tag) = 3) {
+                        $tag = $lib.str.concat($tag.2, ".", $tag.0, "_", $tag.1)
+                        [+#rep.c2_tracker.$tag=($lib.time.now())]
+                    } elif ($lib.len($tag) = 4) {
+                        $tag = $lib.str.concat($tag.3, ".", $tag.0, "_", $tag.1, "_", $tag.2)
+                        [+#rep.c2_tracker.$tag=($lib.time.now())]
+                    }
+                }
+            }
+        }
+    }
+}
+// Do not yield any nodes because it's a lot of data
+| spin

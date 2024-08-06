@@ -1,0 +1,85 @@
+/*
+Name: drb-feed-ingest.storm
+Author: exc3l_one@protonmail.com
+Modified By: TODO
+Last Modified: 2024-06-28
+
+Description: Ingest the CSV feeds from the C2IntelFeeds Github project by drb-ra. 
+
+References: 
+    -- Project Repo: https://github.com/drb-ra/C2IntelFeeds
+*/
+
+function ingestC2URLs() {
+    $url = "https://github.com/drb-ra/C2IntelFeeds/raw/master/feeds/domainC2swithURLwithIP-30day-filter-abused.csv"
+    $resp = $lib.inet.http.get($url)
+    
+    if ($resp.code = 200) {
+        $body = $resp.body.decode()
+        $body = $body.split("\n")
+        for $line in $body {
+            // Remove comment and empty lines
+            if (not $line^="#" and $line != "") {
+                $line = $line.split(",")
+                
+                // Create the domain and inet:dns:a nodes
+                [inet:fqdn=$line.0]
+                if ($line.3~="\d\.") {
+                    [inet:dns:a=($line.0, $line.3)]
+                    [inet:ipv4=$line.3]
+                }
+                //Create the inet:url nodes
+                $url = $lib.str.concat("https://", $line.0, $line.2)
+                [inet:url=$url]
+                
+                //Since the tags are written in prose, we manually extract them from the CSV with keywords
+                //The feed persists for 30 days, so we add the timestamp to the tags to reflect when it appears/dissapears from the threat feed
+                //Remove the timestamp if this is not accurate enough for your use case
+                if ($line.1 ~= "Cobalt") {[+#rep.c2feeds.mal.cobaltstrike=($lib.time.now())]}
+                if ($line.1 ~= "PoshC2") {[+#rep.c2feeds.mal.poshc2=($lib.time.now())]}
+                if ($line.1 ~= "Empire") {[+#rep.c2feeds.mal.empire=($lib.time.now())]}
+                if ($line.1 ~= "Sliver") {[+#rep.c2feeds.mal.sliver=($lib.time.now())]}
+                if ($line.1 ~= "Deimos") {[+#rep.c2feeds.mal.deimos=($lib.time.now())]}
+                if ($line.1 ~= "Havoc") {[+#rep.c2feeds.mal.havoc=($lib.time.now())]}
+                if ($line.1 ~= "Covenant") {[+#rep.c2feeds.mal.covenant=($lib.time.now())]}
+                if ($line.1 ~= "Front") {[+#rep.c2feeds.ttp.fronting_domain=($lib.time.now())]}
+                
+            }
+        }
+    } else {
+        $lib.warn("Returned HTTP code: {code}", code=$resp.code)
+    }
+}
+
+function ingestC2IPs() {
+    $url = "https://raw.githubusercontent.com/drb-ra/C2IntelFeeds/master/feeds/IPC2s.csv"
+    $resp = $lib.inet.http.get($url)
+    
+    if ($resp.code = 200) {
+        $body = $resp.body.decode()
+        $body = $body.split("\n")
+        for $line in $body {
+            // Remove comment and empty lines
+            if (not $line^="#" and $line != "") {
+                $line = $line.split(",")
+                if ($line.0~="\d\.") {
+                    [inet:ipv4=$line.0]
+                }
+                
+                if ($line.1 ~= "Cobalt") {[+#rep.c2feeds.mal.cobaltstrike.susp=($lib.time.now())]}
+                if ($line.1 ~= "PoshC2") {[+#rep.c2feeds.mal.poshc2.susp=($lib.time.now())]}
+                if ($line.1 ~= "Empire") {[+#rep.c2feeds.mal.empire.susp=($lib.time.now())]}
+                if ($line.1 ~= "Sliver") {[+#rep.c2feeds.mal.sliver.susp=($lib.time.now())]}
+                if ($line.1 ~= "Deimos") {[+#rep.c2feeds.mal.deimos.susp=($lib.time.now())]}
+                if ($line.1 ~= "Havoc") {[+#rep.c2feeds.mal.havoc.susp=($lib.time.now())]}
+                if ($line.1 ~= "Covenant") {[+#rep.c2feeds.mal.covenant.susp=($lib.time.now())]}
+
+            }
+        }
+    } else {
+        $lib.warn("Returned HTTP code: {code}", code=$resp.code)
+    }
+}
+
+$ingestC2IPs()
+$ingestC2URLs()

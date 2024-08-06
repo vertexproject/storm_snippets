@@ -1,0 +1,67 @@
+/*
+Name: wiz-cloud-threat-landscape.storm
+Author: exc3l_one@protonmail.com
+Modified By: TODO
+Last Modified: 2024-06-28
+
+Description: Ingest the STIX2.1 data feed from Wiz.io's Cloud Threat Landscape feed. This feed contains information about threat actors, campaigns, malware, and attack patterns affecting the cloud.
+
+References: 
+    -- STIX2.1 Feed: https://www.wiz.io/feed/cloud-threats-landscape/stix.json
+*/
+
+// Pull the STIX2.1 data 
+$url = "https://www.wiz.io/feed/cloud-threats-landscape/stix.json"
+$resp = $lib.inet.http.get($url)
+
+if ($resp.code = 200) {
+
+    $data = $lib.json.load($resp.body)
+
+    // Define the STIX2.1 object and relationship mappings
+    $config = ({
+        "objects": {
+            "tool": {
+                "storm": "($ok, $name) = $lib.trycast(it:prod:softname, $object.name) if $ok { it:prod:softname=$name -> it:prod:soft return($node) [ it:prod:soft=('wiz.io', $name) :name=$name ] return($node) }"
+            },
+            "threat-actor": {
+                "storm": "[ risk:threat=$lib.gen.riskThreat($object.name, 'wiz.io') :tag=`rep.wiz_io.{$object.name}` ] $node.data.set(stix:object, $object) return($node)"
+            },
+            "campaign": {
+                "storm": "[ ou:campaign=(stix, campaign, $object.id) :name?=$object.name :desc?=$object.description :goal={[ou:goal=('wiz.io', $object.objective) :name=$object.objective]} .seen?=$object.last_seen .seen?=$object.first_seen ] [<(refs)+ {[media:news=$lib.gen.newsByUrl($object.external_reference.url, true)]}] $node.data.set(stix:object, $object) return($node)"
+            },
+            "malware": {
+                "storm": "[ risk:tool:software=$lib.gen.riskToolSoftware($object.name, 'wiz.io')] return($node)"
+            },
+            "attack-pattern": {
+                "storm": "[ ou:technique=($object.name, 'wiz.io') :name=$object.name ] return($node)"
+            }
+        },
+        "relationships": [{
+            "type": ["campaign", "attributed-to", "threat-actor"],
+            // Link the ou:campaign to the risk:threat node and add the threat actor's tag to the ou:campaign node to support the Vertex-Triage Power-Up pivoting
+            "storm": "yield $n1node [<(refs)+ {yield $n2node}] | $tag = `rep.wiz_io.{$node.pack().1.props.'org:name'}` [+#$tag ]"
+        }, {
+            "type": ["threat-actor", "uses", "tool"],
+            "storm": "yield $n1node [ +(uses)> { yield $n2node } ]"
+        }, {
+            "type": ["threat-actor", "uses", "malware"],
+            "storm": "yield $n1node [ +(uses)> { yield $n2node } ]"
+        }, {
+            "type": ["campaign", "uses", "malware"],
+            "storm": "yield $n1node [ +(uses)> { yield $n2node } ]"
+        }, {
+            "type": ["campaign", "uses", "tool"],
+            "storm": "yield $n1node [ +(uses)> { yield $n2node } ]"
+        }, {
+            "type": ["campaign", "uses", "attack-pattern"],
+            "storm": "yield $n1node [ +(uses)> { yield $n2node } ]"
+        }]
+    })
+
+    // Ingest the STIX2.1 data 
+    $lib.stix.import.ingest($data, $config)
+
+} else {
+    $lib.warn("Received non-200 HTTP response: {code}", code = $resp.code)
+}

@@ -1,0 +1,28 @@
+/*
+Name: phishunt-feed-ingest.storm
+Author: exc3l_one@protonmail.com
+Modified By: TODO
+Last Modified: 2024-06-28
+
+Description: Ingest the daily Phishing feed from Phishunt.io project. Recommend to ingest this as a daily crontab job. 
+
+References: 
+    -- Phishunt Project Website: https://phishunt.io/
+*/
+
+$url = "https://phishunt.io/feed.txt"
+$resp = $lib.inet.http.get($url)
+
+if ($resp.code = 200) {
+    $body = $resp.body.decode()
+    $body = $body.split("\n")
+    for $url in $body {
+        // Create the URL and rep tag
+        [inet:url=$url] [+#rep.phishunt.phishing=($lib.time.now())]
+        
+        //Uncomment the following line to also add a more genering cno.infra tag
+        //[+#cno.infra.phishing=($lib.time.now())]
+    }
+} else {
+    $lib.warn("Returned HTTP code: {code}", code=$resp.code)
+}

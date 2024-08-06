@@ -1,0 +1,70 @@
+/*
+Name: loobins-project-ingest.storm
+Author: exc3l_one@protonmail.com
+Modified By: TODO
+Last Modified: 2024-06-28
+
+Description: Ingest the JSON representation of the LOOBins project to model the ou:techniques associated with built-in macOS binaries
+
+References: 
+    -- LOOBins Project Website: https://loobins.io/
+*/
+
+// Generate the LOOBins project ou:org node
+init {
+    {[ou:org=$lib.gen.orgByFqdn("loobins.io") 
+        :name="loobins"
+        :url="https://www.loobins.io/"
+        :desc="Living Off the Orchard: macOS Binaries (LOOBins) is designed to provide detailed information on various built-in macOS binaries and how they can be used by threat actors for malicious purposes."
+    ]}
+}
+
+// Get the LOOBins project data in JSON
+$url = "https://www.loobins.io/loobins.json"
+$resp = $lib.inet.http.get($url)
+
+if ($resp.code = 200) {
+    $body = $lib.json.load($body)
+    
+    for $bin in $body {
+        // Create a software node for each LOOBin
+        [it:prod:soft=$lib.gen.softByName($bin.name)
+            :desc:short=$bin.short_description
+            :desc=$bin.full_description
+            :type=macos.loobin
+            :islib=false
+            :isos=false
+        ] 
+
+        // Link the software node to the filepaths it uses
+        for $path in $bin.paths {
+            [+(uses)> {[file:path=$path]}]
+        }
+
+        // Create technique nodes
+        for $ttp in $bin.example_use_cases {
+            [+(uses)> {[ou:technique=("loobins", $ttp.code)
+                :desc=$ttp.description
+                :name=$ttp.name
+                :reporter=$lib.gen.orgByFqdn("loobins.io")
+                :reporter:name="loobins.io"
+                :type=macos.loobins
+            ] 
+
+            // Link the technique to the command it uses by creating a it:proc:exec node to represent the command and the file:base
+            [+(refs)> {
+                [it:exec:proc=($ttp.code, "loobins")
+                    :cmd=$ttp.code
+                    :path:base=$bin.name
+                    :name=$bin.name
+                ]
+            }]}]
+
+            //Alternative method: linking the technique to the command via a light edge (choose either this one or the one above, not both at the same time)
+            //[+(refs)> {[it:cmd=$ttp.code]}]}]
+        }
+            
+    }
+} else {
+    $lib.warn("Returned HTTP code: {code}", code=$resp.code)
+}
